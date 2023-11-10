@@ -2,7 +2,6 @@ package Authen::WebAuthn;
 
 use strict;
 use warnings;
-use Mouse;
 use MIME::Base64 qw(encode_base64url decode_base64url);
 use JSON qw(decode_json from_json to_json);
 use Digest::SHA qw(sha256);
@@ -12,9 +11,6 @@ use Crypt::OpenSSL::X509;
 use CBOR::XS;
 use URI;
 use Carp;
-
-has rp_id  => ( is => 'rw', required => 1 );
-has origin => ( is => 'rw', required => 1 );
 
 my $ATTESTATION_FUNCTIONS = {
     none       => \&attest_none,
@@ -57,6 +53,24 @@ my $COSE_ALG = {
         signature_options => [ "SHA1", "v1.5" ]
     }
 };
+
+sub new {
+    my $class = shift;
+    my %attrs = ref $_[0] eq 'HASH' ? %$_[0] : @_;
+
+    my %required_attrs = map { $_ => 1 } qw(rp_id origin);
+    for my $key ( keys %attrs ) {
+        if ($required_attrs{$key}) {
+            croak("Missing $key") unless $attrs{$key};
+        }
+        else {
+            croak("Unknown attribute $key");
+        }
+    }
+
+    my $self = bless \%attrs, $class;
+    return $self;
+}
 
 sub validate_registration {
     my ( $self, %params ) = @_;
@@ -103,11 +117,11 @@ sub validate_registration {
         croak("Empty origin in client data");
     }
 
-    unless ( $client_data->{origin} eq $self->origin ) {
+    unless ( $client_data->{origin} eq $self->{origin} ) {
         croak(  "Origin received from client data "
               . "($client_data->{origin}) "
               . "does not match server origin " . "("
-              . $self->origin
+              . $self->{origin}
               . ")" );
     }
 
@@ -140,7 +154,7 @@ sub validate_registration {
 
     # 13. Verify that the rpIdHash in authData is the SHA-256 hash of the RP ID
     # expected by the Relying Party.
-    my $hash_rp_id = sha256( $self->rp_id );
+    my $hash_rp_id = sha256( $self->{rp_id} );
     unless ( $authenticator_data->{rpIdHash} eq $hash_rp_id ) {
         croak(  "RP ID hash received from authenticator " . "("
               . unpack( "H*", $authenticator_data->{rpIdHash} ) . ") "
@@ -294,11 +308,11 @@ sub validate_assertion {
         croak("Empty origin");
     }
 
-    unless ( $client_data->{origin} eq $self->origin ) {
+    unless ( $client_data->{origin} eq $self->{origin} ) {
         croak(  "Origin received from client data "
               . "($client_data->{origin}) "
               . "does not match server origin " . "("
-              . $self->origin
+              . $self->{origin}
               . ")" );
     }
 
@@ -317,10 +331,10 @@ sub validate_assertion {
 
     my $hash_rp_id;
     if ( $extension_results->{appid} ) {
-        $hash_rp_id = sha256( $self->origin );
+        $hash_rp_id = sha256( $self->{origin} );
     }
     else {
-        $hash_rp_id = sha256( $self->rp_id );
+        $hash_rp_id = sha256( $self->{rp_id} );
     }
 
     unless ( $authenticator_data->{rpIdHash} eq $hash_rp_id ) {
