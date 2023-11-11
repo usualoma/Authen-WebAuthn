@@ -8,7 +8,6 @@ use Digest::SHA qw(sha256);
 use Crypt::PK::ECC;
 use Crypt::PK::RSA;
 use Crypt::OpenSSL::X509;
-use CBOR::XS;
 use URI;
 use Carp;
 
@@ -53,6 +52,18 @@ my $COSE_ALG = {
         signature_options => [ "SHA1", "v1.5" ]
     }
 };
+
+my ($decode_cbor, $decode_cbor_prefix, $encode_cbor);
+if (eval { require CBOR::XS; 1; }) {
+    my $cbor = CBOR::XS->new;
+    $decode_cbor        = sub { CBOR::XS::decode_cbor($_[0]) };
+    $decode_cbor_prefix = sub { $cbor->decode_prefix($_[0]) };
+} elsif (eval { require CBOR::PP; 1; }) {
+    $decode_cbor        = sub { scalar CBOR::PP::decode($_[0]) };
+    $decode_cbor_prefix = sub { my ($len, $val) = CBOR::PP::decode($_[0]); return ($val, $len); };
+} else {
+    croak "CBOR::XS or CBOR::PP is required";
+}
 
 sub new {
     my $class = shift;
@@ -479,7 +490,7 @@ sub check_token_binding {
 # Used by u2f assertion types
 sub _getU2FKeyFromCose {
     my ($cose_key) = @_;
-    $cose_key = decode_cbor($cose_key);
+    $cose_key = $decode_cbor->($cose_key);
 
     # TODO: do we need to support more algs?
     croak( "Unexpected COSE Alg: " . $cose_key->{3} )
@@ -597,7 +608,7 @@ sub get_verifier_for_alg {
 
 sub getPubKeyVerifier {
     my ($pubkey_cose) = @_;
-    my $cose_key = decode_cbor($pubkey_cose);
+    my $cose_key = $decode_cbor->($pubkey_cose);
 
     my $alg_num = $cose_key->{3};
     return get_verifier_for_alg( $alg_num, $cose_key, "parse_cose" );
@@ -613,7 +624,7 @@ sub getPEMPubKeyVerifier {
 sub getCoseAlgAndLength {
     my ($cbor_raw) = @_;
 
-    my ( $cbor, $length ) = CBOR::XS->new->decode_prefix($cbor_raw);
+    my ( $cbor, $length ) = $decode_cbor_prefix->($cbor_raw);
 
     my $alg_num = $cbor->{3};
     my $alg     = $COSE_ALG->{$alg_num}->{name};
@@ -699,7 +710,7 @@ sub getAuthData {
         my $ext = substr( $ad, 37 + $attestedCredentialDataLength );
 
         if ($ext) {
-            $res->{extensions} = decode_cbor($ext);
+            $res->{extensions} = $decode_cbor->($ext);
         }
     }
     else {
@@ -725,7 +736,7 @@ sub getAttestationObject {
     my ($dat)   = @_;
     my $decoded = decode_base64url($dat);
     my $res     = {};
-    my $h       = decode_cbor($decoded);
+    my $h       = $decode_cbor->($decoded);
     $res->{authData}    = getAuthData( $h->{authData} );
     $res->{authDataRaw} = $h->{authData};
     $res->{attStmt}     = $h->{attStmt};
