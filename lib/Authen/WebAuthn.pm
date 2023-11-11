@@ -7,7 +7,6 @@ use JSON qw(decode_json from_json to_json);
 use Digest::SHA qw(sha256);
 use Crypt::PK::ECC;
 use Crypt::PK::RSA;
-use Crypt::OpenSSL::X509;
 use URI;
 use Carp;
 
@@ -795,10 +794,13 @@ sub attest_packed_x5c {
     my $sig_alg = $attestation_statement->{alg};
     my $sig     = $attestation_statement->{sig};
 
+    croak "Cannot load Crypt::OpenSSL::X509"
+        unless eval { require Crypt::OpenSSL::X509; 1; };
+
     my ( $x5c, $key, $key_alg );
     eval {
         $x5c = Crypt::OpenSSL::X509->new_from_string( $x5c_der,
-            Crypt::OpenSSL::X509::FORMAT_ASN1 );
+            Crypt::OpenSSL::X509::FORMAT_ASN1() );
         $key = $x5c->pubkey();
     };
 
@@ -903,11 +905,14 @@ sub attest_u2f {
         croak "Missing certificate field in attestation statement";
     }
 
+    croak "Cannot load Crypt::OpenSSL::X509"
+        unless eval { require Crypt::OpenSSL::X509; 1; };
+
     my $x5c_der         = $attestation_statement->{x5c}->[0];
     my $attestation_key = Crypt::PK::ECC->new();
     eval {
         my $x5c = Crypt::OpenSSL::X509->new_from_string( $x5c_der,
-            Crypt::OpenSSL::X509::FORMAT_ASN1 );
+            Crypt::OpenSSL::X509::FORMAT_ASN1() );
         my $key_pem = $x5c->pubkey();
         $attestation_key->import_key( \$key_pem );
     };
